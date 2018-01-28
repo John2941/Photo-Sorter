@@ -81,10 +81,3 @@ class Trash(File):
     def __init__(self, path):
         super(Trash, self).__init__(path)
         self.type = 'trash'
-
-
-if __name__ == '__main__':
-    # Testing classes out
-    p = Photo('D:\\Stephany\\Stephanys Pictures\\Sorted\\2017\\January\\DSC_6979.JPG')
-    p = Photo('D:\\Stephany\\Stephanys Pictures\\To be sorted\\Sorter.py.lnk')
-    print(p)
