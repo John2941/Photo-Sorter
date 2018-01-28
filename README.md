@@ -1,7 +1,7 @@
 # Photo-Sorter
 Sorts photos placed into a specified directory by date. Edit
 
-
+```
 usage: main.py [-h] --sort SORTED_FOLDER [--recursive] --media DIR_TO_SEARCH
                [--debug] [--info] [--overwrite] [--cleanup] [--manual-rename]
                (--copy | --move)
@@ -23,3 +23,4 @@ optional arguments:
                         duplicate of the file.
   --copy                Copy files instead of moving them.
   --move                Move files instead of copying them.
+```
