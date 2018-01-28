@@ -8,15 +8,12 @@
 Set the global variables below and run script.
 Be sure to kow the acceptable filetypes.
 """
-from time import sleep
 import time
 import os
-import hashlib
 from structure import Photo, Video, Trash
-#from errors import *
 import logging
 import shutil
-
+import argparse
 
 WANTED_CAMERA_MODELS = ['nikon', 'samsung', 'motorola', '*']
 
@@ -27,7 +24,7 @@ def load_files_from_dir(dir, recursive=False):
     """
     :param dir: directory listing to process to sent to process_files()
     :param recursive: boolean: should this recursively check the dir parameter
-    :return:
+    :return: a list of absolute file paths
     """
     import os
     files = []
@@ -45,11 +42,9 @@ def load_files_from_dir(dir, recursive=False):
 def process_files(dir_list):
     """
     :param dir_list: a list of files to process into Photo, Video, or Trash class
-    :return:
+    :return: a Photo or Video class object
     """
-    photo_list = []
-    video_list = []
-    trash_list = []
+
     for abs_path in dir_list:
         assert os.path.abspath(path=abs_path)
         filename, file_extension = os.path.splitext(abs_path)
@@ -84,19 +79,17 @@ def find_similar_media_file(dirName, media_fileName, exiftags):
         if orig_filename not in filename:
             continue
 
-
-        if filename in files:
-            abs_path = os.path.join(dirName, files)
-            with open(abs_path, 'rb') as binary_file:
-                searchPhotoTags = exifread.process_file(binary_file, details=False)
-                # Now lets check and see if the DateTimeOriginal metadata matches
-                try:
-                    if searchPhotoTags['EXIF DateTimeOriginal'].values == exiftags['EXIF DateTimeOriginal'].values:
-                        # They are the same
-                        return files
-                except KeyError:
-                    # Gonna have to assume they are different
-                    continue
+        abs_path = os.path.join(dirName, files)
+        with open(abs_path, 'rb') as binary_file:
+            searchPhotoTags = exifread.process_file(binary_file, details=False)
+            # Now lets check and see if the DateTimeOriginal metadata matches
+            try:
+                if searchPhotoTags['EXIF DateTimeOriginal'].values == exiftags['EXIF DateTimeOriginal'].values:
+                    # They are the same
+                    return files
+            except KeyError:
+                # Gonna have to assume they are different
+                continue
     return False
 
 
@@ -119,6 +112,7 @@ def increment_filename(dirName, media_fileName):
 
 def valid_photo_source(photo):
     """
+    Why did I add this? idk ... seems like a good idea at first, but now is kinda stupid
     Validates a photo came from a trusted source (the Nikon, phone, or post-edited photo)
     :param photo: Photo class object
     :return: boolean; True if photo from a valid source
@@ -138,28 +132,31 @@ def valid_photo_source(photo):
 
 
 def transfer_file(src, dst):
+    """
+    :param src: absolute file path for the source file
+    :param dst: absolute file path where you want the file transfered
+    :return: noffin
+    """
     if arguments.copy:
         shutil.copy2(src, dst)
         if arguments.cleanup:
             # Deleting the duplicate media file from the --media folder
-            log.debug('Deleteing {}'.format(src))
+            log.debug('Deleting {}'.format(src))
             os.remove(src)
     elif arguments.move:
         shutil.move(src, dst)
 
 
-def sort_file_by_date(*args, **kwargs):
+def sort_file_by_date(files):
     import os
     import calendar
-    RENAME_MEDIA = True
-    for media_file in args:
+    for media_file in files:
         if media_file.type == 'Trash':
             continue
 
         if media_file.type == 'Photo' and not valid_photo_source(media_file):
             # Validates a photo came from a trusted source (the Nikon, phone, or post-edited photo)
             continue
-
 
         year = media_file.creation_date.split(':')[0]
         month = calendar.month_name[int(media_file.creation_date.split(':')[1])]
@@ -171,7 +168,7 @@ def sort_file_by_date(*args, **kwargs):
         try:
             if os.path.isfile(existing_file_path):
                 # Check and see if this file already exists.
-                # This path means theres already a file with the same name.
+                # This path means there's already a file with the same name.
                 log.debug('{}: {} exists.'.format(os.path.isfile(existing_file_path), existing_file_path))
                 if media_file.type == 'Photo':
                     try:
@@ -241,25 +238,6 @@ def sort_file_by_date(*args, **kwargs):
                             #  Increment the name and save
                             incremented_abs_path = increment_filename(file_path, media_file.name)
                             transfer_file(media_file.path, incremented_abs_path)
-
-                # if not arguments.overwrite and not arguments.manual_rename:
-                #     continue
-                # elif arguments.overwrite:
-                #     # Overwrite media_file that already exists under the same name
-                #     log.debug('Overwriting existing file for {}'.format(media_file.path))
-                #     transfer_file(media_file.path, file_path)
-                # elif user_input_rename.lower() == 'y':
-                #     # The name of the media_file exists, but it is not the same media_file that needs to be written
-                #     #   Will increment the name to save
-                #     new_name = os.path.join(file_path, media_file.name)
-                #     count = 0
-                #     while os.path.isfile(new_name):
-                #         new_name = os.path.join(file_path,
-                #                                 media_file.name.replace('.' + media_file.file_extension, '') + \
-                #                                 ' ({}).{}'.format(count, media_file.file_extension))
-                #         count += 1
-                #     log.debug('Saving {} as {}'.format(media_file.path, new_name))
-                    transfer_file(media_file.path, new_name)
             else:
                 # Media filename to be copied or moved does not exist in the --sort folder. Nothing fancy
                 #    needs to be done. So copy or move the file
@@ -272,9 +250,6 @@ def sort_file_by_date(*args, **kwargs):
 
 
 if __name__ == '__main__':
-
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--sort", action='store', dest='sorted_folder', required=True, help="Folder to place sorted files.")
     parser.add_argument('--recursive', action='store_true', dest='recursive_dir', help='Recursively search the --media_folder.')
@@ -299,7 +274,6 @@ if __name__ == '__main__':
         log.setLevel(logging.INFO)
     else:
         log.setLevel(logging.NOTSET)
-
     formatter = logging.Formatter('%(levelname)s: %(message)s')
 
     ch = logging.StreamHandler()
@@ -309,14 +283,9 @@ if __name__ == '__main__':
         ch.setLevel(logging.INFO)
     else:
         ch.setLevel(logging.NOTSET)
-
     ch.setFormatter(formatter)
-
     log.addHandler(ch)
 
-    print arguments
-
-    import time
     num_of_photos = 0
     start_time = time.time()
 
