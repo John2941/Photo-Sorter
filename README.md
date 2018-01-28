@@ -24,3 +24,16 @@ optional arguments:
   --copy                Copy files instead of moving them.
   --move                Move files instead of copying them.
 ```
+
+
+Photos and Videos will be placed into a file structure like this:
+
+2015
+|_ December
+  |_ 1.jpg
+|_ October
+  |_ 24.jpg
+2016
+|_ April
+  |_ fun.jpeg
+  |_ i like ice cream.nef
