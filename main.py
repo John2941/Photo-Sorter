@@ -12,242 +12,323 @@ from time import sleep
 import time
 import os
 import hashlib
-
-SORTED_FOLDER = 'D:\\Stephany\\Stephanys Pictures\\Sorted'
-DIR_TO_SEARCH = 'D:\\Stephany\\Stephanys Pictures\\To be sorted'
-RECURSIVE_DIR_SEARCH = True
-GLOBAL_COPY = False
-GLOBAL_MOVE = True
-CAMERA_NAME = 'NIKON'
+from structure import Photo, Video, Trash
+#from errors import *
+import logging
+import shutil
 
 
-class File(object):
-    def __init__(self, path):
-        self.path = self._verify(path)
-        self.stat = os.stat(self.path)
-        self.file_extension = os.path.splitext(self.path)[1][1:]
-        self.name = os.path.basename(self.path)
-        self.creation_date = time.strftime("%m/%d/%Y %H:%M:%S", time.localtime(self.stat.st_ctime))
-        self.last_modified = time.strftime("%m/%d/%Y %H:%M:%S", time.localtime(self.stat.st_mtime))
-
-    def __repr__(self):
-        return self.name
-
-    @staticmethod
-    def hash(self, path):
-        hash_md5 = hashlib.md5()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
-
-    def _verify(self, path):
-        if os.path.isabs(path):
-            if os.path.isfile(path):
-                file_ext = path.split('.')[-1]
-                if hasattr(self, 'acceptable_file_types'):
-                    if self.acceptable_file_types:
-                        if file_ext.lower() in self.acceptable_file_types:
-                            return path
-                        else:
-                            raise Exception('{} is not an acceptable file extension'.format(file_ext))
-                    else:
-                        return path
-            else:
-                raise Exception('{} is not a file.'.format(path))
-        else:
-            raise Exception('Provide the absolute path.')
+WANTED_CAMERA_MODELS = ['nikon', 'samsung', 'motorola', '*']
 
 
-class Photo(File):
-    def __init__(self, path):
-        import exifread
-        self.acceptable_file_types = ['jpg', 'nef', 'jpeg']
-        File.__init__(self, path)
-        self.photo_data = exifread.process_file(open(self.path, 'rb'))
-        self.exif_photo_taken_date = self.photo_data['EXIF DateTimeOriginal'].values
-
-
-class Video(File):
-    def __init__(self, path):
-        self.acceptable_file_types = ['mov']
-        File.__init__(self, path)
-
-
-class Trash(File):
-    def __init__(self, path):
-        self.acceptable_file_types = None
-        File.__init__(self, path)
 
 
 def load_files_from_dir(dir, recursive=False):
+    """
+    :param dir: directory listing to process to sent to process_files()
+    :param recursive: boolean: should this recursively check the dir parameter
+    :return:
+    """
     import os
-    photos = []
-    if recursive:
-        for dirName, subdirList, fileList in os.walk(dir):
-            pl = []
-            if SORTED_FOLDER in dirName:
-                print 'Skipping Sorted folder'
-                continue
-            for file in fileList:
-                fp = os.path.join(dirName, file)
-                # print fp
-                try:
-                    #
-                    sort_photos_by_date([Photo(fp)], copy=GLOBAL_COPY, move=GLOBAL_MOVE)
-                except Exception:
-                    pass
-            if pl:
-                print '{} photos found.'.format(len(pl))
-                sort_photos_by_date(pl, copy=GLOBAL_COPY, move=GLOBAL_MOVE)
-    else:
-        for file in os.listdir(dir):
-            try:
-                photos.append(Photo(os.path.join(dir, file)))
-            except Exception:
-                pass
-    return photos
+    files = []
+
+    for root_dir, sub_dir, file_list in os.walk(dir):
+        for file in file_list:
+            full_fp = os.path.join(root_dir, file)
+            files.append(full_fp)
+        if not recursive:
+            break
+
+    return files
 
 
-def find_similar_photo(dirName, photoName, exiftags):
+def process_files(dir_list):
+    """
+    :param dir_list: a list of files to process into Photo, Video, or Trash class
+    :return:
+    """
+    photo_list = []
+    video_list = []
+    trash_list = []
+    for abs_path in dir_list:
+        assert os.path.abspath(path=abs_path)
+        filename, file_extension = os.path.splitext(abs_path)
+        file_extension = file_extension[1:]  # Get rid of the period
+        if file_extension in Photo.acceptable_file_types:
+            print abs_path
+            yield Photo(abs_path)
+        elif file_extension in Video.acceptable_file_types:
+            print abs_path
+            yield Video(abs_path)
+        else:
+            continue  # Add trash class in here
+
+
+
+
+def find_similar_media_file(dirName, media_fileName, exiftags):
     """
     :param dirName: directory to search
-    :param photoName: orginal photos name
-    :param exiftags: tags belonging to orginal photo
-    :return: the name of the same photo under a different (but similar) name
+    :param media_fileName: original media_files name
+    :param exiftags: tags belonging to original media_file
+    :return: the name of the same media_file under a different (but similar) name
     """
     import os
     import exifread
     for files in os.listdir(dirName):
-        baseName, fileExt = photoName.split('.')
-        if files[-len(fileExt):] != fileExt:
+        orig_file_extension = media_fileName.split('.')[-1]
+        orig_filename = '.'.join(media_fileName.split('.')[:-1])
+        filename, file_extension = os.path.splitext(files)
+        file_extension = file_extension[1:]
+
+        if orig_filename not in filename:
             continue
-        if baseName.count(' ('):
-            baseName = baseName.split(' (')[0]
-        if baseName in files:
-            searchPhotoTags = exifread.process_file(open(os.path.join(dirName, files), 'rb'))
-            if searchPhotoTags['EXIF DateTimeOriginal'].values == exiftags['EXIF DateTimeOriginal'].values:
-                return files
+
+
+        if filename in files:
+            abs_path = os.path.join(dirName, files)
+            with open(abs_path, 'rb') as binary_file:
+                searchPhotoTags = exifread.process_file(binary_file, details=False)
+                # Now lets check and see if the DateTimeOriginal metadata matches
+                try:
+                    if searchPhotoTags['EXIF DateTimeOriginal'].values == exiftags['EXIF DateTimeOriginal'].values:
+                        # They are the same
+                        return files
+                except KeyError:
+                    # Gonna have to assume they are different
+                    continue
     return False
 
 
-def sort_photos_by_date(photoList, copy=True, move=False):
-    import shutil
+def increment_filename(dirName, media_fileName):
+    """
+    :param dirName: directory to search
+    :param media_fileName: original media_files name
+    :return: new absolute path with an incremented filename
+    """
+    import os
+    for i in xrange(1, 10000):
+        orig_file_extension = media_fileName.split('.')[-1]
+        orig_filename = '.'.join(media_fileName.split('.')[:-1])
+        new_filename = '{} ({}).{}'.format(orig_filename, i, orig_file_extension)
+        new_abs_path = os.path.join(dirName, new_filename)
+        if not os.path.exists(new_abs_path):
+            return new_abs_path
+
+
+
+def valid_photo_source(photo):
+    """
+    Validates a photo came from a trusted source (the Nikon, phone, or post-edited photo)
+    :param photo: Photo class object
+    :return: boolean; True if photo from a valid source
+    """
+    if 'Image Make' in photo.meta_data:
+        # Make sure the picture was taken by a trusted source
+        if photo.meta_data['Image Make'].values.lower().split(' ')[0] not in WANTED_CAMERA_MODELS \
+                and '*' not in WANTED_CAMERA_MODELS:
+            log.debug('{} not processed due to Image Make.'.format(photo.name))
+            return False
+    elif 'Image Software' in photo.meta_data and '*' not in WANTED_CAMERA_MODELS:
+        # If there's not source identifier, check and see if it was edited by media_fileshop
+        if 'media_fileshop' not in photo.meta_data['Image Software'].values.lower():
+            log.debug('{} not processed due to Image Software.'.format(photo.name))
+            return False
+    return True
+
+
+def transfer_file(src, dst):
+    if arguments.copy:
+        shutil.copy2(src, dst)
+        if arguments.cleanup:
+            # Deleting the duplicate media file from the --media folder
+            log.debug('Deleteing {}'.format(src))
+            os.remove(src)
+    elif arguments.move:
+        shutil.move(src, dst)
+
+
+def sort_file_by_date(*args, **kwargs):
     import os
     import calendar
-    import exifread
-    DEBUG = True
-    DEBUG_OVERWRITE = False
-    DEBUG_RENAME = True
-    OVERWRITE_SAME_PHOTO = False
-    RENAME_PHOTOS = True
-    DELETE_SAME_PHOTO = True
-    for photo in photoList:
-        if 'Image Make' in photo.photo_data.keys() and CAMERA_NAME in photo.photo_data['Image Make'].values:
-            year = photo.exif_photo_taken_date.split(':')[0]
-            month = calendar.month_name[int(photo.photo_data['EXIF DateTimeOriginal'].values.split(':')[1])]
-            file_path = os.path.join(SORTED_FOLDER, year, month)
-            new_photo_path = os.path.join(file_path, photo.name)
-            copied = False
-            if not os.path.exists(file_path):
-                os.makedirs(os.path.join(SORTED_FOLDER, year, month))
-            try:
-                user_input = 'n'
-                user_input_new = 'n'
-                if DEBUG:
-                    print '{}: {} exists.'.format(os.path.isfile(new_photo_path), new_photo_path)
-                if os.path.isfile(new_photo_path):
+    RENAME_MEDIA = True
+    for media_file in args:
+        if media_file.type == 'Trash':
+            continue
+
+        if media_file.type == 'Photo' and not valid_photo_source(media_file):
+            # Validates a photo came from a trusted source (the Nikon, phone, or post-edited photo)
+            continue
+
+
+        year = media_file.creation_date.split(':')[0]
+        month = calendar.month_name[int(media_file.creation_date.split(':')[1])]
+        file_path = os.path.join(arguments.sorted_folder, year, month)
+        existing_file_path = os.path.join(file_path, media_file.name)
+        if not os.path.exists(file_path):
+            # Checks to see if there is a file already in the sorted folder
+            os.makedirs(os.path.join(arguments.sorted_folder, year, month))
+        try:
+            if os.path.isfile(existing_file_path):
+                # Check and see if this file already exists.
+                # This path means theres already a file with the same name.
+                log.debug('{}: {} exists.'.format(os.path.isfile(existing_file_path), existing_file_path))
+                if media_file.type == 'Photo':
                     try:
-                        new_photo_tags = exifread.process_file(open(new_photo_path), 'rb')
-                        if DEBUG:
-                            print 'Opening existing pictures EXIF tags.'
+                        new_media_file_tags = Photo(existing_file_path)
+                        log.debug('Opening existing pictures EXIF tags.')
                     except IndexError:
-                        if DEBUG:
-                            print 'Error on {}'.format(new_photo_path)
+                        log.debug('Error on {}'.format(existing_file_path))
                         continue
-                    if new_photo_tags['EXIF DateTimeOriginal'].values == photo.photo_data[
-                        'EXIF DateTimeOriginal'].values:
-                        if DEBUG_OVERWRITE or DEBUG:
-                            print 'SAME PHOTO: {}'.format(photo.path)
-                            print 'SAME PHOTO: {}'.format(new_photo_path)
-                        if OVERWRITE_SAME_PHOTO:
-                            user_input = raw_input('Look like the same photo should I overwrite? [Y|N]')
-                        else:
-                            if DEBUG or DEBUG_OVERWRITE or DEBUG_RENAME:
-                                print 'Not overwriting photo. Photo already exists in folder under a different name.'
-                                if DELETE_SAME_PHOTO:
-                                    print 'Deleteing {}'.format(photo.path)
-                            if DELETE_SAME_PHOTO:
-                                os.remove(photo.path)
+                elif media_file.type == 'Video':
+                    try:
+                        new_media_file_tags = Video(existing_file_path)
+                        log.debug('Opening existing video file.')
+                    except IndexError:
+                        log.debug('Error on {}'.format(existing_file_path))
+                        continue
+                if new_media_file_tags.hash() == media_file.hash():
+                    # Exact same media file found.
+                    log.debug('SAME FILE: {}'.format(media_file.path))
+                    log.debug('SAME FILE: {}'.format(existing_file_path))
+                    if arguments.overwrite:
+                        transfer_file(media_file.path, file_path)
                     else:
-                        # If names are the same then check all names that are similar to see if
-                        #   the file was saved under a different name
-                        if DEBUG or DEBUG_RENAME:
-                            print 'DIFFERENT PHOTO: {}'.format(new_photo_path)
-                        found_similar = find_similar_photo(file_path, photo.name, photo.photo_data)
-                        if found_similar:
-                            if DEBUG or DEBUG_OVERWRITE:
-                                print 'Found similar photo under a different name ({}). Skipping'.format(found_similar)
-                                continue
-                        else:
-                            if RENAME_PHOTOS:
-                                user_input_new = 'y'
-                            else:
-                                user_input_new = raw_input(
-                                    'Looks like a different photo should I write with a new name? [Y|N]')
-                    if user_input.lower() == 'n' and user_input_new.lower() == 'n':
+                        # Not going to overwrite the same file in the --sort folder
+                        log.debug('Not overwriting media_file. File already exists in folder under a different name.')
+                        if arguments.cleanup:
+                            # Deleting the duplicate media file from the --media folder
+                            log.debug('Deleteing {}'.format(media_file.path))
+                            os.remove(media_file.path)
+                    continue
+                else:
+                    # The new media file to be copied/moved has the same name as another file in the --sort folder, but
+                    #       is not the exact match. Will need to increment the name. We will check any other media files
+                    #       that have the same root name, but have an increment. i.e., beachphoto (2).jpg
+                    log.debug('DIFFERENT FILE: {}'.format(existing_file_path))
+                    found_similar = find_similar_media_file(file_path, media_file.name, media_file.meta_data)
+                    if found_similar:
+                        # Found the same file under a different incremented name
+                        log.debug('Found similar media_file under a different name ({}). Skipping'.format(found_similar))
+                        if arguments.manual_rename:
+                            while True:
+                                new_file_name = raw_input('What would you like to rename the file? ')
+
+                                new_file_name = '{}.{}'.format(new_file_name, media_file.file_extension)
+                                new_abs_path = os.path.join(file_path, new_file_name)
+                                if os.path.exists(new_abs_path):
+                                    print('Filename already exists. Pick another.')
+                                else:
+                                    break
+                            transfer_file(media_file.path, new_abs_path)
+                        elif arguments.overwrite:
+                            transfer_file(media_file.path, found_similar)
                         continue
-                    elif user_input.lower() == 'y':
-                        # Overwrite photo that already exists under the same name
-                        if DEBUG or DEBUG_OVERWRITE:
-                            print 'Overwriting existing file for {}'.format(photo.path)
-                        if copy:
-                            shutil.copy2(photo.path, file_path)
-                            copied = True
-                        elif move:
-                            shutil.move(photo.path, file_path)
-                            moved = True
-                    elif user_input_new.lower() == 'y':
-                        # The name of the photo exists, but it is not the same photo that needs to be written
-                        #   Will increment the name to save
-                        new_name = os.path.join(file_path, photo.name)
-                        count = 0
-                        while os.path.isfile(new_name):
-                            new_name = os.path.join(file_path,
-                                                    photo.name.replace('.' + photo.file_extension, '') + \
-                                                    ' ({}).{}'.format(count, photo.file_extension))
-                            count += 1
-                        if DEBUG or DEBUG_RENAME:
-                            print 'Saving {} as {}'.format(photo.path, new_name)
-                        if copy:
-                            shutil.copy2(photo.path, new_name)
-                            copied = True
-                        elif move:
-                            if DEBUG_RENAME:
-                                print 'Original Photo {}'.format(photo.path)
-                            shutil.move(photo.path, new_name)
-                            moved = True
-                else:
-                    if copy:
-                        shutil.copy2(photo.path, file_path)
-                        copied = True
-                    elif move:
-                        if DEBUG_RENAME:
-                            print 'Original Photo {}'.format(photo.path)
-                        shutil.move(photo.path, file_path)
-                        moved = True
-            except IOError as e:
-                if 'Permission denied' in e.message:
-                    print 'Permission denied on {}'.format(photo)
-                else:
-                    pass
-                pass
-            if copied and DEBUG:
-                print 'Copied {}'.format(photo)
-            if moved and DEBUG:
-                print 'Moved {} to {}'.format(photo, file_path or new_name)
+                    else:
+                        # All incremented names were not a copy
+                        if arguments.manual_rename:
+                            while True:
+                                new_file_name = raw_input('What would you like to rename the file? ')
+
+                                new_file_name = '{}.{}'.format(new_file_name, media_file.file_extension)
+                                new_abs_path = os.path.join(file_path, new_file_name)
+                                if os.path.exists(new_abs_path):
+                                    print('Filename already exists. Pick another.')
+                                else:
+                                    break
+                            transfer_file(media_file.path, new_abs_path)
+                        else:
+                            #  Increment the name and save
+                            incremented_abs_path = increment_filename(file_path, media_file.name)
+                            transfer_file(media_file.path, incremented_abs_path)
+
+                # if not arguments.overwrite and not arguments.manual_rename:
+                #     continue
+                # elif arguments.overwrite:
+                #     # Overwrite media_file that already exists under the same name
+                #     log.debug('Overwriting existing file for {}'.format(media_file.path))
+                #     transfer_file(media_file.path, file_path)
+                # elif user_input_rename.lower() == 'y':
+                #     # The name of the media_file exists, but it is not the same media_file that needs to be written
+                #     #   Will increment the name to save
+                #     new_name = os.path.join(file_path, media_file.name)
+                #     count = 0
+                #     while os.path.isfile(new_name):
+                #         new_name = os.path.join(file_path,
+                #                                 media_file.name.replace('.' + media_file.file_extension, '') + \
+                #                                 ' ({}).{}'.format(count, media_file.file_extension))
+                #         count += 1
+                #     log.debug('Saving {} as {}'.format(media_file.path, new_name))
+                    transfer_file(media_file.path, new_name)
+            else:
+                # Media filename to be copied or moved does not exist in the --sort folder. Nothing fancy
+                #    needs to be done. So copy or move the file
+                transfer_file(media_file.path, file_path)
+
+        except IOError as e:
+            if 'Permission denied' in e.message:
+                log.warning('Permission denied on {}'.format(media_file))
+            pass
 
 
 if __name__ == '__main__':
-    load_files_from_dir(DIR_TO_SEARCH, recursive=RECURSIVE_DIR_SEARCH)
+
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sort", action='store', dest='sorted_folder', required=True, help="Folder to place sorted files.")
+    parser.add_argument('--recursive', action='store_true', dest='recursive_dir', help='Recursively search the --media_folder.')
+    parser.add_argument('--media', action='store', dest='dir_to_search', required=True, help='Folder to search for file to sort.')
+    parser.add_argument('--debug', action='store_true', dest='debug', help='Display debugging messages.')
+    parser.add_argument('--info', action='store_true', dest='info', help='Display informational messages.')
+
+    parser.add_argument('--overwrite', action='store_true', dest='overwrite', help='Will overwrite copies of the file if they\'re found in the --sort folder.')
+    parser.add_argument('--cleanup', action='store_true', dest='cleanup', help='Will delete media files from --media folder after it transfers it to the --sort folder.')
+    parser.add_argument('--manual-rename', action='store_true', dest='manual_rename', help='Will prompt the user to specific a new name for a file, if the name already exists and its not a duplicate of the file.')
+    
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--copy', action='store_true', dest='copy', help='Copy files instead of moving them.')
+    group.add_argument('--move', action='store_true', dest='move', help='Move files instead of copying them.')
+
+    arguments = parser.parse_args()
+
+    log = logging.getLogger(__name__)
+    if arguments.debug:
+        log.setLevel(logging.DEBUG)
+    elif arguments.info:
+        log.setLevel(logging.INFO)
+    else:
+        log.setLevel(logging.NOTSET)
+
+    formatter = logging.Formatter('%(levelname)s: %(message)s')
+
+    ch = logging.StreamHandler()
+    if arguments.debug:
+        ch.setLevel(logging.DEBUG)
+    elif arguments.info:
+        ch.setLevel(logging.INFO)
+    else:
+        ch.setLevel(logging.NOTSET)
+
+    ch.setFormatter(formatter)
+
+    log.addHandler(ch)
+
+    print arguments
+
+    import time
+    num_of_photos = 0
+    start_time = time.time()
+
+    unprocessed_files = load_files_from_dir(arguments.dir_to_search, recursive=arguments.recursive_dir)
+
+    for f in process_files(unprocessed_files):
+        sort_file_by_date(f)
+        num_of_photos += 1
+
+    total_time = time.time() - start_time
+    print('{} photos processed in {} seconds.'.format(num_of_photos, total_time))
+    if total_time != 0:
+        avg_time = 0 if num_of_photos == 0 else total_time / num_of_photos
+        print('It took an average of {} seconds per photo.'.format(avg_time))
     raw_input("Press Enter to exit.")
