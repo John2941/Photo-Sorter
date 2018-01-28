@@ -27,7 +27,7 @@ optional arguments:
 
 
 Photos and Videos will be placed into a file structure like this:
-
+```
 2015
 |_ December
   |_ 1.jpg
@@ -37,3 +37,4 @@ Photos and Videos will be placed into a file structure like this:
 |_ April
   |_ fun.jpeg
   |_ i like ice cream.nef
+```
